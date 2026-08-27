@@ -72,6 +72,24 @@ size instead silently scrolls the wrong element and the scan stalls forever.
 
 ## Removing a connection
 
+`src/linkedin/page/actions.ts` holds the only implementation, and both front
+ends run it: the extension calls it in its content script, the driver
+stringifies it. That is deliberate — there should not be two versions of the
+operation LinkedIn cannot undo, and running the driver against a real account
+exercises exactly what the extension runs.
+
+Everything it needs lives inside the one exported function, because a
+module-scope reference is `undefined` once a function is stringified. The
+driver keeps what genuinely needs a browser: navigating to the list, the pacing
+between entries, and the per-run caps.
+
+Two things the DOM version has to do that Playwright did for free. The name
+filter is React-controlled, so assigning `.value` updates the DOM and nothing
+else — it goes through the native setter and dispatches `input`, or the list
+never filters and the card is never found. And visibility is checked by
+computed style plus a layout box, since there is no actionability check to lean
+on.
+
 From the connections list, never by opening profiles — visiting a profile shows
 up in that person's "who viewed your profile".
 
@@ -170,5 +188,7 @@ directly is the clearest automation signal an account can send.
 | `src/linkedin/heuristics.ts` | The "looks like a company" guess |
 | `src/linkedin/pacing.ts` | Scroll pacing both front ends share |
 | `src/server/evaluate.ts` | Running a reader through Playwright |
-| `src/server/actions.ts` | Remove and unfollow |
+| `src/linkedin/page/actions.ts` | Remove and unfollow, in the page |
+| `src/linkedin/labels-ui.ts` | Every control label, in both languages |
+| `src/server/actions.ts` | Navigation, pacing and caps for the driver |
 | `extension/src/content.ts` | Running a reader in the extension |

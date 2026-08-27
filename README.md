@@ -24,11 +24,14 @@ cd linkedin-cleanup
 npm install
 ```
 
-There are two ways to run it. The **extension** needs no second browser and no
-terminal after the build, but only reads your lists for now. The **app** below
-is the one that removes and unfollows.
+There are two ways to run it, and they do the same things. The **extension**
+needs no second browser and no terminal once it is built. The **app** below
+keeps the keyboard-driven interface and the shared-connection lookup.
 
-### As a Chrome extension (read-only)
+Both drive LinkedIn through the same code, so a removal behaves identically
+either way.
+
+### As a Chrome extension
 
 ```bash
 npm run build:extension
@@ -38,11 +41,12 @@ Then open `chrome://extensions`, turn on **Developer mode**, choose **Load
 unpacked**, and pick `dist/extension`. Click the toolbar icon on any LinkedIn
 tab to open the side panel.
 
-It scans your lists into the same kind of local list and keeps your keep list,
-in the browser you are already signed in to — no separate profile, no second
-login. It cannot yet remove or unfollow: those actions are irreversible, and
-they stay in the app below until their selectors have been exercised from the
-extension against live pages.
+It scans, filters, keeps, removes and unfollows — in the browser you are
+already signed in to. No separate profile, no second login, nothing to run in a
+terminal. The same dry run, keep list, per-run caps and log apply.
+
+Leave the LinkedIn tab open while it works: the extension drives that tab, and
+navigating away mid-run stops it.
 
 ### As a local app
 
@@ -150,8 +154,8 @@ Three things protect you:
 
 - **Dry run** (`d` in the confirm box) finds everyone you marked and checks it
   can reach the remove button, without clicking it. Nothing is removed.
-- **A log** of every attempt is kept at `~/.incleanup/removals.log`, so you can
-  look up anyone you cut by mistake.
+- **A log** of every attempt is kept at `~/.incleanup/removals.log` — in the
+  extension, in its own storage — so you can look up anyone you cut by mistake.
 - **Limits per run**: 100 removals, 500 unfollows. Roughly 5 seconds each, so
   100 people takes about 8 minutes.
 

@@ -22,9 +22,9 @@ export const config = {
   scrollWaitMs: int(process.env.INCLEANUP_SCROLL_WAIT, PACING.scrollWaitMs),
 
   /** Connection removals per run. Deliberately low: LinkedIn cannot undo them. */
-  maxRemovalsPerRun: int(process.env.INCLEANUP_MAX_REMOVALS, 100),
+  maxRemovalsPerRun: int(process.env.INCLEANUP_MAX_REMOVALS, PACING.maxRemovalsPerRun),
   /** Unfollows per run. Higher, because following again is one click. */
-  maxUnfollowsPerRun: int(process.env.INCLEANUP_MAX_UNFOLLOWS, 500),
+  maxUnfollowsPerRun: int(process.env.INCLEANUP_MAX_UNFOLLOWS, PACING.maxUnfollowsPerRun),
   /** Search result pages to walk when looking up mutual connections. */
   maxEnrichPages: int(process.env.INCLEANUP_MAX_ENRICH_PAGES, 100),
   /**
@@ -32,8 +32,8 @@ export const config = {
    * does restrict accounts that fire in a steady machine rhythm — but tuned for
    * a clean-up session rather than maximum caution.
    */
-  removalDelayMinMs: int(process.env.INCLEANUP_REMOVAL_DELAY_MIN, 1500),
-  removalDelayMaxMs: int(process.env.INCLEANUP_REMOVAL_DELAY_MAX, 3500),
+  removalDelayMinMs: int(process.env.INCLEANUP_REMOVAL_DELAY_MIN, PACING.actionDelayMinMs),
+  removalDelayMaxMs: int(process.env.INCLEANUP_REMOVAL_DELAY_MAX, PACING.actionDelayMaxMs),
 } as const
 
 export const actionLogPath = path.join(config.dataDir, 'removals.log')

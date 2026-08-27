@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DATASET_KINDS, DATASET_LABELS } from '../../../src/linkedin/labels.ts'
 import { looksCorporate } from '../../../src/linkedin/heuristics.ts'
+import { limitFor } from '../../../src/linkedin/pacing.ts'
 import type { DatasetKind, Entity } from '../../../src/linkedin/types.ts'
 import {
   IconBuilding,
@@ -12,12 +13,22 @@ import {
   IconShieldOff,
   IconSquare,
   IconStop,
+  IconTrash,
   IconUserCheck,
+  IconUserMinus,
   IconUsers,
 } from '../../../src/web/icons.tsx'
-import { isScanEventMessage } from '../messages.ts'
-import { readEnrichment, readKeepList, readSnapshot, setKept, writeScannedSnapshot } from '../storage.ts'
-import { startScan, stopScan } from './scan.ts'
+import { isActEventMessage, isScanEventMessage, type ActionResult } from '../messages.ts'
+import {
+  appendActionLog,
+  dropFromSnapshot,
+  readEnrichment,
+  readKeepList,
+  readSnapshot,
+  setKept,
+  writeScannedSnapshot,
+} from '../storage.ts'
+import { startAction, startScan, stopWork } from './scan.ts'
 
 const TAB_ICONS = {
   connections: IconUsers,
@@ -26,14 +37,8 @@ const TAB_ICONS = {
 } as const
 
 type ScanState = { tabId: number; found: number; total: number | null } | null
+type ActState = { tabId: number; done: number; total: number; dryRun: boolean } | null
 
-/**
- * Read-only for now: it scans, stores and shows the lists, and maintains the
- * keep list. Removing and unfollowing stay in the Playwright driver until the
- * action selectors have been exercised against live markup from here — those
- * are the irreversible ones, and shipping them unproven is not worth the week
- * it saves.
- */
 export function Panel() {
   const [kind, setKind] = useState<DatasetKind>('connections')
   const [entities, setEntities] = useState<Entity[]>([])
@@ -44,13 +49,37 @@ export function Panel() {
   const [query, setQuery] = useState('')
   const [corporateOnly, setCorporateOnly] = useState(false)
   const [scan, setScan] = useState<ScanState>(null)
+  const [act, setAct] = useState<ActState>(null)
+  const [results, setResults] = useState<ActionResult[]>([])
+  const [confirming, setConfirming] = useState(false)
+  const [dryRun, setDryRun] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  /**
+   * Results and run state are mirrored in refs because the "finished" message
+   * has to read the whole run at once. Doing that inside a state updater would
+   * run the logging twice under StrictMode — and this log is the only record of
+   * an irreversible action.
+   */
+  const resultsRef = useRef<ActionResult[]>([])
+  const actRef = useRef<ActState>(null)
+
+  const verb = DATASET_LABELS[kind].verb
+  const busy = scan !== null || act !== null
 
   const refresh = useCallback(async () => {
     const [snapshot, keepList] = await Promise.all([readSnapshot(kind), readKeepList(kind)])
     setEntities(snapshot?.entities ?? [])
     setScrapedAt(snapshot?.scrapedAt ?? null)
     setKeptIds(keepList)
+
+    // Entries acted on are gone from the snapshot; keeping them selected would
+    // leave the count pointing at people who are no longer there.
+    const present = new Set((snapshot?.entities ?? []).map((entity) => entity.id))
+    setSelected((current) => {
+      const stillThere = [...current].filter((id) => present.has(id))
+      return stillThere.length === current.size ? current : new Set(stillThere)
+    })
   }, [kind])
 
   useEffect(() => {
@@ -63,25 +92,77 @@ export function Panel() {
   // goes rather than staying empty behind a progress bar.
   useEffect(() => {
     const onMessage = (message: unknown) => {
-      if (!isScanEventMessage(message)) return
-      const { dataset, event } = message
+      if (isScanEventMessage(message)) {
+        const { dataset, event } = message
 
-      if (event.kind === 'progress') {
-        setScan((current) => (current ? { ...current, found: event.found, total: event.total } : current))
+        if (event.kind === 'progress') {
+          setScan((current) =>
+            current ? { ...current, found: event.found, total: event.total } : current,
+          )
+          return
+        }
+        if (event.kind === 'error') {
+          setError(event.message)
+          setScan(null)
+          return
+        }
+
+        void (async () => {
+          const known = await readEnrichment(dataset)
+          await writeScannedSnapshot(dataset, event.entities, known)
+          if (dataset === kind) await refresh()
+          if (event.kind === 'done') setScan(null)
+        })()
         return
       }
+
+      if (!isActEventMessage(message)) return
+      const { dataset, event } = message
 
       if (event.kind === 'error') {
         setError(event.message)
-        setScan(null)
+        setAct(null)
         return
       }
 
+      if (event.kind === 'result') {
+        resultsRef.current = [...resultsRef.current, event.result]
+        setResults(resultsRef.current)
+        setAct((current) =>
+          current ? { ...current, done: event.done, total: event.total } : current,
+        )
+        return
+      }
+
+      // finished
+      const run = actRef.current
+      actRef.current = null
+      setAct(null)
+
+      // A dry run changes nothing, so nothing is logged and nothing is dropped.
+      if (!run || run.dryRun) return
+
+      const finished = resultsRef.current
       void (async () => {
-        const known = await readEnrichment(dataset)
-        await writeScannedSnapshot(dataset, event.entities, known)
+        await appendActionLog(
+          finished.map((result) => ({
+            at: Date.now(),
+            kind: dataset,
+            id: result.id,
+            name: result.name,
+            outcome: result.outcome,
+            ...(result.error ? { error: result.error } : {}),
+          })),
+        )
+        await dropFromSnapshot(
+          dataset,
+          new Set(
+            finished
+              .filter((r) => r.outcome === 'done' || r.outcome === 'already-gone')
+              .map((r) => r.id),
+          ),
+        )
         if (dataset === kind) await refresh()
-        if (event.kind === 'done') setScan(null)
       })()
     }
 
@@ -89,7 +170,7 @@ export function Panel() {
     return () => chrome.runtime.onMessage.removeListener(onMessage)
   }, [kind, refresh])
 
-  const run = useCallback(async () => {
+  const runScan = useCallback(async () => {
     setError(null)
     const started = await startScan(kind)
     if ('error' in started) {
@@ -98,6 +179,53 @@ export function Panel() {
     }
     setScan({ tabId: started.tabId, found: 0, total: null })
   }, [kind])
+
+  const runAction = useCallback(async () => {
+    setError(null)
+    setConfirming(false)
+
+    /**
+     * Re-read from storage rather than trusting what this component last
+     * rendered. The keep list is the one guarantee that has to survive a stale
+     * view, so it is enforced at the moment of acting, not at the moment of
+     * selecting.
+     */
+    const keepNow = await readKeepList(kind)
+    const allowed = [...selected].filter((id) => !keepNow.has(id))
+    const blocked = selected.size - allowed.length
+
+    if (allowed.length === 0) {
+      setError(
+        blocked > 0 ? 'Every one of those is on the keep list.' : 'Nothing selected to act on.',
+      )
+      return
+    }
+
+    const limit = limitFor(kind)
+    if (allowed.length > limit) {
+      setError(
+        `Refusing to ${verb} ${allowed.length} in one run (limit ${limit}). Narrow the selection.`,
+      )
+      return
+    }
+
+    const byId = new Map(entities.map((entity) => [entity.id, entity]))
+    const targets = allowed.map((id) => ({ id, name: byId.get(id)?.name ?? id }))
+
+    resultsRef.current = []
+    setResults([])
+    const started = await startAction(kind, targets, dryRun)
+    if ('error' in started) {
+      setError(started.error)
+      return
+    }
+
+    const run = { tabId: started.tabId, done: 0, total: targets.length, dryRun }
+    actRef.current = run
+    setAct(run)
+    if (blocked > 0) setError(`Skipped ${blocked} on the keep list.`)
+    if (!dryRun) setSelected(new Set())
+  }, [dryRun, entities, kind, selected, verb])
 
   const keep = useCallback(
     async (shouldKeep: boolean) => {
@@ -111,8 +239,13 @@ export function Panel() {
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return entities.filter((entity) => {
+      // The keep list is a hard exclusion, not a filter you can clear by
+      // accident: those entries are only ever visible in their own view.
       if (kept.has(entity.id) !== showKept) return false
-      if (needle && !`${entity.name} ${entity.headline} ${entity.id}`.toLowerCase().includes(needle)) {
+      if (
+        needle &&
+        !`${entity.name} ${entity.headline} ${entity.id}`.toLowerCase().includes(needle)
+      ) {
         return false
       }
       if (corporateOnly && !looksCorporate(entity).flagged) return false
@@ -129,6 +262,7 @@ export function Panel() {
     })
 
   const allShownSelected = filtered.length > 0 && filtered.every((e) => selected.has(e.id))
+  const failures = results.filter((result) => result.outcome === 'failed')
 
   return (
     <div className="panel">
@@ -141,7 +275,7 @@ export function Panel() {
                 key={k}
                 className={k === kind ? 'tab active' : 'tab'}
                 onClick={() => setKind(k)}
-                disabled={scan !== null}
+                disabled={busy}
               >
                 <TabIcon />
                 {DATASET_LABELS[k].short}
@@ -152,21 +286,32 @@ export function Panel() {
 
         <div className="panel-actions">
           {scan ? (
-            <button onClick={() => void stopScan(scan.tabId)}>
+            <button onClick={() => void stopWork(scan.tabId)}>
               <IconStop size={14} />
               Stop
             </button>
           ) : (
-            <button onClick={() => void run()}>
+            <button onClick={() => void runScan()} disabled={busy}>
               <IconRefresh />
               {entities.length === 0 ? 'Scan' : 'Rescan'}
             </button>
           )}
-          <button onClick={() => void keep(!showKept)} disabled={selected.size === 0}>
+          <button onClick={() => void keep(!showKept)} disabled={selected.size === 0 || busy}>
             {showKept ? <IconShieldOff /> : <IconShield />}
             {showKept ? 'Stop keeping' : 'Keep'}
             {selected.size > 0 && ` ${selected.size}`}
           </button>
+          {!showKept && (
+            <button
+              className="danger"
+              onClick={() => setConfirming(true)}
+              disabled={busy || selected.size === 0}
+            >
+              {verb === 'remove' ? <IconTrash /> : <IconUserMinus />}
+              {verb === 'remove' ? 'Remove' : 'Unfollow'}
+              {selected.size > 0 && ` ${selected.size}`}
+            </button>
+          )}
         </div>
       </header>
 
@@ -176,6 +321,15 @@ export function Panel() {
         <div className="banner">
           Scanning… {scan.found}
           {scan.total ? ` of ${scan.total}` : ' found'}. Leave the LinkedIn tab open.
+        </div>
+      )}
+
+      {act && (
+        <div className="banner">
+          {act.dryRun ? 'Dry run' : 'Working'} — {act.done} of {act.total}.{' '}
+          <button className="link" onClick={() => void stopWork(act.tabId)}>
+            stop
+          </button>
         </div>
       )}
 
@@ -202,7 +356,13 @@ export function Panel() {
         <span>
           <strong>{filtered.length}</strong> of {entities.length}
         </span>
-        <button className="link" onClick={() => setSelected(allShownSelected ? new Set() : new Set(filtered.map((e) => e.id)))} disabled={filtered.length === 0}>
+        <button
+          className="link"
+          onClick={() =>
+            setSelected(allShownSelected ? new Set() : new Set(filtered.map((e) => e.id)))
+          }
+          disabled={filtered.length === 0}
+        >
           {allShownSelected ? <IconSquare /> : <IconCheckSquare />}
           {allShownSelected ? 'none' : 'all'}
         </button>
@@ -221,9 +381,23 @@ export function Panel() {
         {scrapedAt && <span className="dim">{new Date(scrapedAt).toLocaleDateString()}</span>}
       </div>
 
+      {failures.length > 0 && (
+        <div className="panel-failures">
+          {failures.map((result) => (
+            <div key={result.id}>
+              ✗ {result.name} — {result.error}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="panel-list">
         {filtered.length === 0 ? (
-          <Empty hasEntities={entities.length > 0} keepView={showKept} label={DATASET_LABELS[kind].label} />
+          <Empty
+            hasEntities={entities.length > 0}
+            keepView={showKept}
+            label={DATASET_LABELS[kind].label}
+          />
         ) : (
           filtered.map((entity) => (
             <Row
@@ -234,6 +408,70 @@ export function Panel() {
             />
           ))
         )}
+      </div>
+
+      {confirming && (
+        <ConfirmDialog
+          verb={verb}
+          count={selected.size}
+          names={[...selected]
+            .map((id) => entities.find((e) => e.id === id)?.name ?? id)
+            .slice(0, 8)}
+          dryRun={dryRun}
+          onToggleDryRun={() => setDryRun((value) => !value)}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => void runAction()}
+        />
+      )}
+    </div>
+  )
+}
+
+function ConfirmDialog({
+  verb,
+  count,
+  names,
+  dryRun,
+  onToggleDryRun,
+  onCancel,
+  onConfirm,
+}: {
+  verb: 'remove' | 'unfollow'
+  count: number
+  names: string[]
+  dryRun: boolean
+  onToggleDryRun: () => void
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="overlay">
+      <div className="dialog">
+        <h2>
+          {verb === 'remove' ? 'Remove' : 'Unfollow'} {count} {count === 1 ? 'entry' : 'entries'}?
+        </h2>
+        <ul className="preview">
+          {names.map((name) => (
+            <li key={name}>{name}</li>
+          ))}
+          {count > names.length && <li className="more">…and {count - names.length} more</li>}
+        </ul>
+        <p className="warning">
+          {verb === 'remove'
+            ? 'LinkedIn does not undo this — re-adding means a fresh invite they must accept.'
+            : 'You can follow a page again later, but the list of who you followed is not kept.'}{' '}
+          Every attempt is recorded, and the LinkedIn tab has to stay open.
+        </p>
+        <label className="dry-run">
+          <input type="checkbox" checked={dryRun} onChange={onToggleDryRun} />
+          Dry run — find each one and check the control, but never click it
+        </label>
+        <div className="dialog-actions">
+          <button onClick={onCancel}>Cancel</button>
+          <button className="danger" onClick={onConfirm}>
+            {dryRun ? 'Start dry run' : `${verb === 'remove' ? 'Remove' : 'Unfollow'} ${count}`}
+          </button>
+        </div>
       </div>
     </div>
   )

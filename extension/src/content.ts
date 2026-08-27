@@ -1,9 +1,11 @@
 import { DATASETS } from '../../src/linkedin/datasets.ts'
 import { scrollToEnd } from '../../src/linkedin/page/connections.ts'
 import { StaleReaderError } from '../../src/linkedin/errors.ts'
-import { PACING, scrollWaitFor } from '../../src/linkedin/pacing.ts'
+import { PACING, actionJitter, scrollWaitFor } from '../../src/linkedin/pacing.ts'
+import { performAction } from '../../src/linkedin/page/actions.ts'
+import { CONTROL_LABELS } from '../../src/linkedin/labels-ui.ts'
 import type { DatasetKind, Entity, RawCard } from '../../src/linkedin/types.ts'
-import type { Request, ScanEvent } from './messages.ts'
+import type { ActEvent, ActionTarget, Request, ScanEvent } from './messages.ts'
 
 /**
  * Runs inside the LinkedIn tab.
@@ -26,6 +28,56 @@ const emit = (dataset: DatasetKind, event: ScanEvent) => {
   // The panel may be closed, in which case nobody is listening. That is fine
   // and must not abort the scan, so the delivery failure is swallowed.
   void chrome.runtime.sendMessage({ kind: 'incleanup:event', dataset, event }).catch(() => {})
+}
+
+const emitAct = (dataset: DatasetKind, event: ActEvent) => {
+  void chrome.runtime.sendMessage({ kind: 'incleanup:act-event', dataset, event }).catch(() => {})
+}
+
+/**
+ * Works through the targets one at a time, on the page, using exactly the
+ * function the Playwright driver runs.
+ *
+ * The pause between entries is not politeness — LinkedIn restricts accounts
+ * that act in a steady machine rhythm — so it is never skipped, and the caller
+ * cannot shorten it.
+ */
+async function act(dataset: DatasetKind, targets: ActionTarget[], dryRun: boolean): Promise<void> {
+  if (/\/(login|uas|checkpoint|signup)/.test(location.pathname)) {
+    emitAct(dataset, { kind: 'error', message: 'LinkedIn asked to log in again.' })
+    return
+  }
+
+  for (const [index, target] of targets.entries()) {
+    if (stopRequested) break
+
+    let result
+    try {
+      result = await performAction({
+        kind: dataset,
+        id: target.id,
+        name: target.name,
+        dryRun,
+        labels: CONTROL_LABELS,
+      })
+    } catch (error) {
+      result = {
+        outcome: 'failed' as const,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+
+    emitAct(dataset, {
+      kind: 'result',
+      result: { ...target, ...result },
+      done: index + 1,
+      total: targets.length,
+    })
+
+    if (index < targets.length - 1) await sleep(actionJitter())
+  }
+
+  emitAct(dataset, { kind: 'finished' })
 }
 
 async function scan(dataset: DatasetKind): Promise<void> {
@@ -101,6 +153,19 @@ chrome.runtime.onMessage.addListener((message: Request, _sender, sendResponse) =
   if (message.kind === 'incleanup:stop') {
     stopRequested = true
     sendResponse({ stopping: true })
+    return false
+  }
+
+  if (message.kind === 'incleanup:act') {
+    stopRequested = false
+    sendResponse({ started: true })
+
+    act(message.dataset, message.targets, message.dryRun).catch((error: unknown) => {
+      emitAct(message.dataset, {
+        kind: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    })
     return false
   }
 

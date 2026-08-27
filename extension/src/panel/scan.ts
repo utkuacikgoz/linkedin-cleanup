@@ -1,6 +1,6 @@
 import { DATASETS } from '../../../src/linkedin/datasets.ts'
 import type { DatasetKind } from '../../../src/linkedin/types.ts'
-import type { Request } from '../messages.ts'
+import type { ActionTarget, Request } from '../messages.ts'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -70,6 +70,45 @@ export async function startScan(dataset: DatasetKind): Promise<StartResult> {
   return { tabId: tab.id }
 }
 
-export async function stopScan(tabId: number): Promise<void> {
+/**
+ * Puts the tab on the right list and hands the targets to the content script.
+ * The tab must be on that list first — `performAction` reads the page it is
+ * given and does not navigate.
+ */
+export async function startAction(
+  dataset: DatasetKind,
+  targets: ActionTarget[],
+  dryRun: boolean,
+): Promise<StartResult> {
+  const spec = DATASETS[dataset]
+
+  const tab = await linkedInTab()
+  if (tab.id === undefined) return { error: 'Could not find a LinkedIn tab to work in.' }
+
+  if (!(tab.url ?? '').includes(spec.marker)) {
+    await chrome.tabs.update(tab.id, { url: spec.url })
+    await sleep(500)
+  }
+
+  if (!(await waitForContentScript(tab.id))) {
+    return {
+      error:
+        'The LinkedIn tab never became ready. If you are signed out, sign in there and try again.',
+    }
+  }
+
+  const started = await send<{ started: boolean }>(tab.id, {
+    kind: 'incleanup:act',
+    dataset,
+    targets,
+    dryRun,
+  })
+  if (!started?.started) return { error: 'The LinkedIn tab did not accept the request.' }
+
+  return { tabId: tab.id }
+}
+
+/** Stops whichever run is in flight; the content script checks one flag. */
+export async function stopWork(tabId: number): Promise<void> {
   await send(tabId, { kind: 'incleanup:stop' })
 }

@@ -77,3 +77,41 @@ export async function setKept(
   await chrome.storage.local.set({ [KEEP_KEY]: list })
   return current
 }
+
+const LOG_KEY = 'actionLog'
+
+export type LoggedAction = {
+  at: number
+  kind: DatasetKind
+  id: string
+  name: string
+  outcome: string
+  error?: string
+}
+
+/**
+ * Removals cannot be undone on LinkedIn's side, so every attempt is recorded
+ * locally — the extension's answer to `~/.incleanup/removals.log`, and the only
+ * way back to someone cut by mistake.
+ */
+export async function appendActionLog(entries: LoggedAction[]): Promise<void> {
+  if (entries.length === 0) return
+  const stored = await chrome.storage.local.get(LOG_KEY)
+  const log = ((stored[LOG_KEY] as LoggedAction[] | undefined) ?? []).concat(entries)
+  await chrome.storage.local.set({ [LOG_KEY]: log })
+}
+
+export async function readActionLog(): Promise<LoggedAction[]> {
+  const stored = await chrome.storage.local.get(LOG_KEY)
+  return (stored[LOG_KEY] as LoggedAction[] | undefined) ?? []
+}
+
+/** Entries acted on are gone from LinkedIn, so they leave the snapshot too. */
+export async function dropFromSnapshot(kind: DatasetKind, ids: Set<string>): Promise<void> {
+  const snapshot = await readSnapshot(kind)
+  if (!snapshot) return
+  await writeSnapshot(
+    kind,
+    snapshot.entities.filter((entity) => !ids.has(entity.id)),
+  )
+}

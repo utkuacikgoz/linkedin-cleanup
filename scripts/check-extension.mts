@@ -61,6 +61,13 @@ if (await exists('content.js')) {
     source.includes('data-chameleon-result-urn'),
     'content.js does not contain the network-manager reader',
   )
+  // The actions are the half that cannot be undone; a build that shipped the
+  // readers but tree-shook these would look fine until someone pressed Remove.
+  check(
+    source.includes('remove connection'),
+    'content.js does not contain the removal control labels',
+  )
+  check(source.includes('stop following'), 'content.js does not contain the unfollow labels')
 }
 
 check(

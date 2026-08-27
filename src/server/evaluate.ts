@@ -18,6 +18,8 @@ export function pageSource<T>(call: PageCall<T>): string {
   return `(() => { const __name = (f) => f; return (${call.fn.toString()})(${args}) })()`
 }
 
-export function evaluateInPage<T>(page: Page, call: PageCall<T>): Promise<T> {
-  return page.evaluate(pageSource(call)) as Promise<T>
+export function evaluateInPage<T>(page: Page, call: PageCall<T>): Promise<Awaited<T>> {
+  // page.evaluate resolves a promise the page returns, so an async reader
+  // arrives here already settled.
+  return page.evaluate(pageSource(call)) as Promise<Awaited<T>>
 }

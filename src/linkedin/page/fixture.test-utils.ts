@@ -56,6 +56,32 @@ function approximateInnerText(root: Node): string {
 export function pageWith(html: string): JSDOM {
   const dom = new JSDOM(html, { runScripts: 'outside-only' })
 
+  /**
+   * jsdom performs no layout, so every rect is 0x0 and anything that asks
+   * "is this visible?" answers no. Elements report a real box unless they are
+   * explicitly hidden, which is the distinction the readers actually care about.
+   */
+  dom.window.Element.prototype.getBoundingClientRect = function (this: Element) {
+    const style = dom.window.getComputedStyle(this)
+    const hidden = style.display === 'none' || style.visibility === 'hidden'
+    const box = hidden
+      ? { width: 0, height: 0 }
+      : { width: 240, height: 32 }
+    return {
+      ...box,
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: box.width,
+      bottom: box.height,
+      toJSON: () => box,
+    } as DOMRect
+  }
+
+  // Also absent from jsdom, for the same reason.
+  dom.window.Element.prototype.scrollIntoView = () => {}
+
   Object.defineProperty(dom.window.HTMLElement.prototype, 'innerText', {
     configurable: true,
     get(this: HTMLElement) {
