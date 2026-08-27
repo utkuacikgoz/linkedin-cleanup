@@ -1,5 +1,6 @@
 import os from 'node:os'
 import path from 'node:path'
+import { PACING } from '../linkedin/pacing.ts'
 
 const int = (value: string | undefined, fallback: number) => {
   const parsed = Number(value)
@@ -12,13 +13,13 @@ export const config = {
   dataDir: process.env.INCLEANUP_DATA_DIR ?? path.join(os.homedir(), '.incleanup'),
 
   /** Upper bound on connections pulled in one scrape. */
-  maxConnections: int(process.env.INCLEANUP_MAX_CONNECTIONS, 5000),
+  maxConnections: int(process.env.INCLEANUP_MAX_CONNECTIONS, PACING.maxEntries),
   /** Scroll rounds without new profiles before the scrape is considered complete. */
-  scrollIdleRounds: int(process.env.INCLEANUP_SCROLL_IDLE_ROUNDS, 12),
+  scrollIdleRounds: int(process.env.INCLEANUP_SCROLL_IDLE_ROUNDS, PACING.scrollIdleRounds),
   /** New connections between snapshot writes, so an interrupted scan is not lost. */
-  checkpointEvery: int(process.env.INCLEANUP_CHECKPOINT_EVERY, 200),
+  checkpointEvery: int(process.env.INCLEANUP_CHECKPOINT_EVERY, PACING.checkpointEvery),
   /** Pause after each scroll, for LinkedIn to append the next page of cards. */
-  scrollWaitMs: int(process.env.INCLEANUP_SCROLL_WAIT, 1200),
+  scrollWaitMs: int(process.env.INCLEANUP_SCROLL_WAIT, PACING.scrollWaitMs),
 
   /** Connection removals per run. Deliberately low: LinkedIn cannot undo them. */
   maxRemovalsPerRun: int(process.env.INCLEANUP_MAX_REMOVALS, 100),

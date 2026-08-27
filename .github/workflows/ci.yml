@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor the package declares, and current LTS.
+        node: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Also runs check-extension, which fails the build if the bundle is not
+      # something Chrome would load.
+      - name: Build
+        run: npm run build
+
+      - name: Upload extension
+        if: matrix.node == '22'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-unpacked
+          path: dist/extension

@@ -19,10 +19,33 @@ for your LinkedIn password.
 ## Install
 
 ```bash
-git clone https://github.com/sulhadin/linkedin-cleanup.git
+git clone https://github.com/utkuacikgoz/linkedin-cleanup.git
 cd linkedin-cleanup
 npm install
 ```
+
+There are two ways to run it. The **extension** needs no second browser and no
+terminal after the build, but only reads your lists for now. The **app** below
+is the one that removes and unfollows.
+
+### As a Chrome extension (read-only)
+
+```bash
+npm run build:extension
+```
+
+Then open `chrome://extensions`, turn on **Developer mode**, choose **Load
+unpacked**, and pick `dist/extension`. Click the toolbar icon on any LinkedIn
+tab to open the side panel.
+
+It scans your lists into the same kind of local list and keeps your keep list,
+in the browser you are already signed in to — no separate profile, no second
+login. It cannot yet remove or unfollow: those actions are irreversible, and
+they stay in the app below until their selectors have been exercised from the
+extension against live pages.
+
+### As a local app
+
 
 ## Use it
 
@@ -166,9 +189,15 @@ says what it hit. Rescan (`r`) and try that one again.
 ## Notes
 
 ```bash
-npm test        # regression tests for the snapshot store
-npm run build   # typecheck and build
+npm test              # parsers, page readers and the snapshot store
+npm run typecheck
+npm run build         # typecheck, build the web app and the extension
+npm run build:extension
 ```
+
+The page readers are tested against fixture markup rather than a live account,
+so a change that breaks how a card is read fails locally instead of on your
+network.
 
 Screenshots use blurred photos and made-up names — the real lists are full of
 real people. `npm run screenshots` regenerates them the same way.

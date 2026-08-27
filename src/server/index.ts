@@ -7,7 +7,7 @@ import express from 'express'
 import { config } from './config.ts'
 import { ChromeUnreachableError, checkLoggedIn, closeTabOnExit, isReachable } from './browser.ts'
 import { runActions } from './actions.ts'
-import { DATASETS } from './datasets.ts'
+import { DATASETS } from '../linkedin/datasets.ts'
 import { enrichMutuals } from './enrich.ts'
 import { currentJob, getJob, JobBusyError, startJob } from './jobs.ts'
 import { scanDataset } from './scan.ts'
@@ -20,7 +20,6 @@ import {
   readSnapshot,
   setProtected,
   writeScannedSnapshot,
-  writeSnapshot,
 } from './store.ts'
 import type { DatasetKind, Entity, JobEvent } from './types.ts'
 
@@ -149,7 +148,7 @@ app.post('/api/datasets/connections/enrich', (_req, res) => {
   try {
     const job = startJob('enrich', async (j) => {
       j.emit({ type: 'log', message: 'Reading shared connections from 1st-degree search…' })
-      const { patches, pagesRead, hitCap } = await enrichMutuals({
+      const { patches, pagesRead, hitCap, locale } = await enrichMutuals({
         onProgress: (done) =>
           j.emit({ type: 'progress', done, total: null, message: `${done} looked up` }),
         onCheckpoint: (partial) => mergeIntoSnapshot('connections', partial),
@@ -158,7 +157,20 @@ app.post('/api/datasets/connections/enrich', (_req, res) => {
       await mergeIntoSnapshot('connections', patches)
 
       const snapshot = await readSnapshot('connections')
-      const unknown = (snapshot?.entities ?? []).filter((e) => e.mutual === undefined).length
+      // `null` is "we could not read it", same as never looked up — and neither
+      // is a zero. Counting only `undefined` here would under-report.
+      const unknown = (snapshot?.entities ?? []).filter(
+        (e) => e.mutual === undefined || e.mutual === null,
+      ).length
+
+      if (locale === null && pagesRead > 0) {
+        return (
+          `Read ${pagesRead} pages but could not count any shared connections: LinkedIn is ` +
+          `rendering in a language this build cannot read, so every one was left Unknown ` +
+          `rather than recorded as zero.`
+        )
+      }
+
       return unknown > 0 || hitCap
         ? `${patches.size} looked up over ${pagesRead} pages. ${unknown} left unknown — LinkedIn caps this search.`
         : `${patches.size} looked up over ${pagesRead} pages.`

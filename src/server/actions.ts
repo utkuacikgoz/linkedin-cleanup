@@ -1,7 +1,7 @@
 import type { Locator, Page } from 'playwright-core'
 import { config } from './config.ts'
 import { workPage } from './browser.ts'
-import { DATASETS } from './datasets.ts'
+import { DATASETS } from '../linkedin/datasets.ts'
 import type { ActionResult, DatasetKind, Entity } from './types.ts'
 
 // LinkedIn renders in the account's own language, so every control is matched
@@ -84,7 +84,7 @@ async function removeConnection(
 ): Promise<ActionResult> {
   const base = { id: entity.id, name: entity.name }
 
-  await ensureOn(page, DATASETS.connections.url, '/mynetwork/invite-connect/connections')
+  await ensureOn(page, DATASETS.connections.url, DATASETS.connections.marker)
   if (/\/(login|uas|checkpoint|signup)/.test(page.url())) {
     return { ...base, outcome: 'failed', error: 'LinkedIn asked to log in again' }
   }
@@ -161,10 +161,9 @@ async function unfollow(
 ): Promise<ActionResult> {
   const base = { id: entity.id, name: entity.name }
   const spec = DATASETS[kind]
-  const marker = kind === 'pages' ? '/network-manager/company' : '/network-manager/people-follow'
   const linkPath = kind === 'pages' ? `/company/${entity.id}` : `/in/${encodeURIComponent(entity.id)}`
 
-  await ensureOn(page, spec.url, marker)
+  await ensureOn(page, spec.url, spec.marker)
   if (/\/(login|uas|checkpoint|signup)/.test(page.url())) {
     return { ...base, outcome: 'failed', error: 'LinkedIn asked to log in again' }
   }
