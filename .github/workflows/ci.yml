@@ -12,8 +12,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The floor the package declares, and current LTS.
-        node: ['20', '22']
+        # The exact floor the package declares, and current LTS. Pinning the
+        # floor rather than "latest 20.x" is the point: it is what catches a
+        # dev dependency quietly raising the version contributors need.
+        node: ['20.19', '22']
 
     steps:
       - uses: actions/checkout@v4
