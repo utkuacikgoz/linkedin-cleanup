@@ -1,9 +1,16 @@
 name: CI
 
 on:
+  # Only the default branch on push: everything else arrives as a pull request,
+  # and listening to both ran every PR commit through the matrix twice.
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
+
+# A new push supersedes the run in flight for the same branch.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
