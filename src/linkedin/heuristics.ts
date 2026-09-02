@@ -1,4 +1,4 @@
-import type { Entity } from './api.ts'
+import type { Entity } from './types.ts'
 
 /**
  * LinkedIn only lets people connect to people, so a company never shows up in

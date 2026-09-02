@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Cleanup",
+  "version": "0.1.0",
+  "description": "Review and prune your LinkedIn connections, followed pages and follows. Everything stays on your machine.",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "action": {
+    "default_title": "Open LinkedIn Cleanup"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

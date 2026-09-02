@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  # Only the default branch on push: everything else arrives as a pull request,
+  # and listening to both ran every PR commit through the matrix twice.
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push supersedes the run in flight for the same branch.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The exact floor the package declares, and current LTS. Pinning the
+        # floor rather than "latest 20.x" is the point: it is what catches a
+        # dev dependency quietly raising the version contributors need.
+        node: ['20.19', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Also runs check-extension, which fails the build if the bundle is not
+      # something Chrome would load.
+      - name: Build
+        run: npm run build
+
+      - name: Upload extension
+        if: matrix.node == '22'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-unpacked
+          path: dist/extension

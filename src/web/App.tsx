@@ -32,7 +32,7 @@ import {
   IconUsers,
 } from './icons.tsx'
 import { DATASETS } from './datasets.ts'
-import { looksCorporate } from './heuristics.ts'
+import { looksCorporate } from '../linkedin/heuristics.ts'
 import { useJob } from './useJob.ts'
 import { useTheme } from './useTheme.ts'
 

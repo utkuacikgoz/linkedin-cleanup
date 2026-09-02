@@ -1,23 +1,11 @@
-export type DatasetKind = 'connections' | 'pages' | 'following'
+import type { DatasetLabel } from '../linkedin/labels.ts'
 
-export type DatasetInfo = {
-  kind: DatasetKind
-  label: string
-  short: string
-  verb: 'remove' | 'unfollow'
-}
+export type { DatasetKind, Entity } from '../linkedin/types.ts'
+import type { DatasetKind, Entity } from '../linkedin/types.ts'
 
-export type Entity = {
-  id: string
-  name: string
-  headline: string
-  url: string
-  avatarUrl?: string
-  connectedAt?: number
-  /** undefined = not looked up, null = LinkedIn would not say. Neither is zero. */
-  mutual?: number | null
-}
+export type DatasetInfo = DatasetLabel & { kind: DatasetKind }
 
+/** The API's shape, which carries the keep list and an unscanned `null`. */
 export type Snapshot = { scrapedAt: number | null; entities: Entity[]; protectedIds: string[] }
 
 export type Status = {

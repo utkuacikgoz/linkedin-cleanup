@@ -19,10 +19,37 @@ for your LinkedIn password.
 ## Install
 
 ```bash
-git clone https://github.com/sulhadin/linkedin-cleanup.git
+git clone https://github.com/utkuacikgoz/linkedin-cleanup.git
 cd linkedin-cleanup
 npm install
 ```
+
+There are two ways to run it, and they do the same things. The **extension**
+needs no second browser and no terminal once it is built. The **app** below
+keeps the keyboard-driven interface and the shared-connection lookup.
+
+Both drive LinkedIn through the same code, so a removal behaves identically
+either way.
+
+### As a Chrome extension
+
+```bash
+npm run build:extension
+```
+
+Then open `chrome://extensions`, turn on **Developer mode**, choose **Load
+unpacked**, and pick `dist/extension`. Click the toolbar icon on any LinkedIn
+tab to open the side panel.
+
+It scans, filters, keeps, removes and unfollows — in the browser you are
+already signed in to. No separate profile, no second login, nothing to run in a
+terminal. The same dry run, keep list, per-run caps and log apply.
+
+Leave the LinkedIn tab open while it works: the extension drives that tab, and
+navigating away mid-run stops it.
+
+### As a local app
+
 
 ## Use it
 
@@ -127,8 +154,8 @@ Three things protect you:
 
 - **Dry run** (`d` in the confirm box) finds everyone you marked and checks it
   can reach the remove button, without clicking it. Nothing is removed.
-- **A log** of every attempt is kept at `~/.incleanup/removals.log`, so you can
-  look up anyone you cut by mistake.
+- **A log** of every attempt is kept at `~/.incleanup/removals.log` — in the
+  extension, in its own storage — so you can look up anyone you cut by mistake.
 - **Limits per run**: 100 removals, 500 unfollows. Roughly 5 seconds each, so
   100 people takes about 8 minutes.
 
@@ -166,9 +193,15 @@ says what it hit. Rescan (`r`) and try that one again.
 ## Notes
 
 ```bash
-npm test        # regression tests for the snapshot store
-npm run build   # typecheck and build
+npm test              # parsers, page readers and the snapshot store
+npm run typecheck
+npm run build         # typecheck, build the web app and the extension
+npm run build:extension
 ```
+
+The page readers are tested against fixture markup rather than a live account,
+so a change that breaks how a card is read fails locally instead of on your
+network.
 
 Screenshots use blurred photos and made-up names — the real lists are full of
 real people. `npm run screenshots` regenerates them the same way.

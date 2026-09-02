@@ -1,0 +1,51 @@
+/* The side panel is a narrow column, so the desktop app's grid is flattened
+   into a single scrolling list and the row loses its date and mutual columns. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head .tabs { display: flex; gap: 4px; }
+.panel-head .tab { flex: 1; justify-content: center; }
+.panel-actions { display: flex; gap: 6px; }
+.panel-actions button { flex: 1; justify-content: center; }
+
+.panel-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.panel-filters .search { width: 100%; }
+
+.panel-list { flex: 1; overflow-y: auto; }
+.panel-list .row { position: static; height: auto; padding: 8px 10px; }
+.panel-list .row .who { min-width: 0; }
+.panel-list .row .open { padding: 4px; }
+
+.panel-failures {
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  margin: 0 10px;
+  border: 1px solid var(--danger, #b24020);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The confirm dialog is the last thing between a click and something LinkedIn
+   will not undo, so it gets the panel's full width rather than a narrow card. */
+.panel .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 12px; }
+.panel .dialog { width: 100%; max-width: none; }
+.panel .dialog .preview { max-height: 140px; overflow-y: auto; }

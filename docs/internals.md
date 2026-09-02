@@ -28,13 +28,32 @@ Both connections variants exist in the wild: one pages in on scroll, the other
 needs a **Load more** button clicked. `clickLoadMore` handles the second; without
 it a scan stops at the first screenful.
 
-## Browser-side code is passed as strings
+## Two front ends, one set of page readers
 
-`tsx` compiles with esbuild's `keepNames`, which rewrites named function
-expressions into calls to a `__name` helper that does not exist inside the page.
-Anything handed to `page.evaluate` as a *function* breaks the moment it declares
-a nested helper. So `harvest.ts` and `harvestManager.ts` cross the boundary as
-source text. Losing type-checking there is the price.
+Everything that reads or interprets a LinkedIn page lives in `src/linkedin/`
+and is consumed twice: the extension's content script imports the readers and
+calls them, and the Playwright driver stringifies the same functions for
+`page.evaluate`. Neither owns them.
+
+That second path used to force the readers to be untyped source strings. `tsx`
+compiles with esbuild's `keepNames`, which rewrites nested helpers into calls to
+a `__name` helper that does not exist inside the page, so a real function broke
+the moment it declared one.
+
+`src/server/evaluate.ts` supplies an identity `__name` in the evaluated scope,
+which removes the constraint entirely — the readers are ordinary type-checked
+TypeScript again. Arguments cross as JSON, so a RegExp is passed as its source
+string and rebuilt on the far side; that is why the two network-manager lists
+are one parameterised reader rather than two functions sharing a helper. A
+module-scope reference is `undefined` once a function is stringified, so every
+reader must be self-contained.
+
+`src/server/evaluate.test.ts` asserts all of this, including that the compiler
+still emits `__name` at all — if a future toolchain stops, the shim is no longer
+load-bearing and that test says so.
+
+The extension needs none of it: content scripts are bundled as ordinary code,
+and MV3's CSP forbids `eval` anyway.
 
 ## Reading a list
 
@@ -52,6 +71,24 @@ Scrolling targets the inner pane holding the most entries. Picking a pane by
 size instead silently scrolls the wrong element and the scan stalls forever.
 
 ## Removing a connection
+
+`src/linkedin/page/actions.ts` holds the only implementation, and both front
+ends run it: the extension calls it in its content script, the driver
+stringifies it. That is deliberate — there should not be two versions of the
+operation LinkedIn cannot undo, and running the driver against a real account
+exercises exactly what the extension runs.
+
+Everything it needs lives inside the one exported function, because a
+module-scope reference is `undefined` once a function is stringified. The
+driver keeps what genuinely needs a browser: navigating to the list, the pacing
+between entries, and the per-run caps.
+
+Two things the DOM version has to do that Playwright did for free. The name
+filter is React-controlled, so assigning `.value` updates the DOM and nothing
+else — it goes through the native setter and dispatches `input`, or the list
+never filters and the card is never found. And visibility is checked by
+computed style plus a layout box, since there is no actionability check to lean
+on.
 
 From the connections list, never by opening profiles — visiting a profile shows
 up in that person's "who viewed your profile".
@@ -98,6 +135,13 @@ Two traps:
 - The search is capped near 1,000 results. Entries past the cap keep
   `mutual: null` and are shown as `Unknown`. They must never be recorded as
   zero, or filtering for "0 shared" quietly sweeps up people nobody looked up.
+- The same rule applies to language. The row filter accepts Turkish results, so
+  a parser that knew only English phrases returned `0` for every one of them —
+  and "0 shared" is the filter the README recommends before a bulk removal. The
+  reader now reports `<html lang>` alongside the rows, and `parseMutualCount`
+  returns `0` only for a language it actually has patterns for. Anything else is
+  `null`. Adding a language means adding patterns to `src/linkedin/mutuals.ts`
+  and nothing else.
 
 ## Profile photos are proxied
 
@@ -136,9 +180,15 @@ directly is the clearest automation signal an account can send.
 
 | File | |
 | --- | --- |
-| `src/server/harvest.ts` | Connections page + scrolling |
-| `src/server/harvestManager.ts` | Network-manager lists |
-| `src/server/enrich.ts` | People search, shared counts |
-| `src/server/actions.ts` | Remove and unfollow |
-| `src/server/datasets.ts` | Per-list URLs, harvesters, mapping |
-| `src/web/heuristics.ts` | The "looks like a company" guess |
+| `src/linkedin/page/connections.ts` | Connections page + scrolling |
+| `src/linkedin/page/manager.ts` | Network-manager lists |
+| `src/linkedin/page/search.ts` | People search rows + page language |
+| `src/linkedin/mutuals.ts` | Shared-connection counts, per language |
+| `src/linkedin/datasets.ts` | Per-list URLs, readers, mapping |
+| `src/linkedin/heuristics.ts` | The "looks like a company" guess |
+| `src/linkedin/pacing.ts` | Scroll pacing both front ends share |
+| `src/server/evaluate.ts` | Running a reader through Playwright |
+| `src/linkedin/page/actions.ts` | Remove and unfollow, in the page |
+| `src/linkedin/labels-ui.ts` | Every control label, in both languages |
+| `src/server/actions.ts` | Navigation, pacing and caps for the driver |
+| `extension/src/content.ts` | Running a reader in the extension |
